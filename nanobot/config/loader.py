@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nanobot.config.schema import Config
 
 
@@ -29,16 +31,22 @@ def load_config(config_path: Path | None = None) -> Config:
         Loaded configuration object.
     """
     path = config_path or get_config_path()
-    
+
     if path.exists():
         try:
             with open(path) as f:
                 data = json.load(f)
             return Config.model_validate(convert_keys(data))
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Warning: Failed to load config from {path}: {e}")
-            print("Using default configuration.")
-    
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON config from {path}: {e}")
+            logger.warning("Using default configuration.")
+        except (OSError, IOError) as e:
+            logger.warning(f"Failed to read config file {path}: {e}")
+            logger.warning("Using default configuration.")
+        except ValueError as e:
+            logger.warning(f"Invalid configuration values in {path}: {e}")
+            logger.warning("Using default configuration.")
+
     return Config()
 
 
@@ -52,11 +60,11 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     """
     path = config_path or get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Convert to camelCase format
     data = config.model_dump()
     data = convert_to_camel(data)
-    
+
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 

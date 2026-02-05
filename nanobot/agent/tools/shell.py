@@ -8,13 +8,17 @@ from typing import Any
 
 from nanobot.agent.tools.base import Tool
 
+# Constants
+MAX_OUTPUT_LENGTH = 10000  # Maximum output length before truncation
+DEFAULT_TIMEOUT = 60  # Default command timeout in seconds
+
 
 class ExecTool(Tool):
     """Tool to execute shell commands."""
-    
+
     def __init__(
         self,
-        timeout: int = 60,
+        timeout: int = DEFAULT_TIMEOUT,
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
@@ -34,15 +38,15 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
-    
+
     @property
     def name(self) -> str:
         return "exec"
-    
+
     @property
     def description(self) -> str:
         return "Execute a shell command and return its output. Use with caution."
-    
+
     @property
     def parameters(self) -> dict[str, Any]:
         return {
@@ -59,13 +63,13 @@ class ExecTool(Tool):
             },
             "required": ["command"]
         }
-    
+
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
         guard_error = self._guard_command(command, cwd)
         if guard_error:
             return guard_error
-        
+
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -73,7 +77,7 @@ class ExecTool(Tool):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
             )
-            
+
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
@@ -82,29 +86,28 @@ class ExecTool(Tool):
             except asyncio.TimeoutError:
                 process.kill()
                 return f"Error: Command timed out after {self.timeout} seconds"
-            
+
             output_parts = []
-            
+
             if stdout:
                 output_parts.append(stdout.decode("utf-8", errors="replace"))
-            
+
             if stderr:
                 stderr_text = stderr.decode("utf-8", errors="replace")
                 if stderr_text.strip():
                     output_parts.append(f"STDERR:\n{stderr_text}")
-            
+
             if process.returncode != 0:
                 output_parts.append(f"\nExit code: {process.returncode}")
-            
+
             result = "\n".join(output_parts) if output_parts else "(no output)"
-            
+
             # Truncate very long output
-            max_len = 10000
-            if len(result) > max_len:
-                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
-            
+            if len(result) > MAX_OUTPUT_LENGTH:
+                result = result[:MAX_OUTPUT_LENGTH] + f"\n... (truncated, {len(result) - MAX_OUTPUT_LENGTH} more chars)"
+
             return result
-            
+
         except Exception as e:
             return f"Error executing command: {str(e)}"
 

@@ -297,6 +297,10 @@ nanobot gateway
 
 Config file: `~/.nanobot/config.json`
 
+📖 **[See Complete Configuration Reference →](CONFIG.md)**
+
+🔒 **[See Security Guidelines →](SECURITY.md)**
+
 ### Providers
 
 > [!NOTE]
