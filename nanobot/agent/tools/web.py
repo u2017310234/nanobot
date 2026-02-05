@@ -26,7 +26,7 @@ def _is_private_ip(hostname: str) -> bool:
         # Handle localhost explicitly
         if hostname.lower() in ('localhost', '127.0.0.1', '::1'):
             return True
-        
+
         # Try to parse as IP address
         ip = ipaddress.ip_address(hostname)
         return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
@@ -59,14 +59,14 @@ def _validate_url(url: str) -> tuple[bool, str]:
             return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
         if not p.netloc:
             return False, "Missing domain"
-        
+
         # Extract hostname (without port)
         hostname = p.hostname or p.netloc.split(':')[0]
-        
+
         # Check for private/internal IP addresses to prevent SSRF
         if _is_private_ip(hostname):
             return False, f"Access to private/internal IP addresses is not allowed: {hostname}"
-        
+
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -74,7 +74,7 @@ def _validate_url(url: str) -> tuple[bool, str]:
 
 class WebSearchTool(Tool):
     """Search the web using Brave Search API."""
-    
+
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
     parameters = {
@@ -85,15 +85,15 @@ class WebSearchTool(Tool):
         },
         "required": ["query"]
     }
-    
+
     def __init__(self, api_key: str | None = None, max_results: int = 5):
         self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
         self.max_results = max_results
-    
+
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         if not self.api_key:
             return "Error: BRAVE_API_KEY not configured"
-        
+
         try:
             n = min(max(count or self.max_results, 1), 10)
             async with httpx.AsyncClient() as client:
@@ -104,11 +104,11 @@ class WebSearchTool(Tool):
                     timeout=DEFAULT_SEARCH_TIMEOUT
                 )
                 r.raise_for_status()
-            
+
             results = r.json().get("web", {}).get("results", [])
             if not results:
                 return f"No results for: {query}"
-            
+
             lines = [f"Results for: {query}\n"]
             for i, item in enumerate(results[:n], 1):
                 lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
@@ -123,7 +123,7 @@ class WebSearchTool(Tool):
 
 class WebFetchTool(Tool):
     """Fetch and extract content from a URL using Readability."""
-    
+
     name = "web_fetch"
     description = "Fetch URL and extract readable content (HTML → markdown/text)."
     parameters = {
@@ -135,10 +135,10 @@ class WebFetchTool(Tool):
         },
         "required": ["url"]
     }
-    
+
     def __init__(self, max_chars: int = DEFAULT_MAX_CHARS):
         self.max_chars = max_chars
-    
+
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
         from readability import Document
 
@@ -157,9 +157,9 @@ class WebFetchTool(Tool):
             ) as client:
                 r = await client.get(url, headers={"User-Agent": USER_AGENT})
                 r.raise_for_status()
-            
+
             ctype = r.headers.get("content-type", "")
-            
+
             # JSON
             if "application/json" in ctype:
                 text, extractor = json.dumps(r.json(), indent=2), "json"
@@ -171,18 +171,18 @@ class WebFetchTool(Tool):
                 extractor = "readability"
             else:
                 text, extractor = r.text, "raw"
-            
+
             truncated = len(text) > max_chars
             if truncated:
                 text = text[:max_chars]
-            
+
             return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
                               "extractor": extractor, "truncated": truncated, "length": len(text), "text": text})
         except httpx.HTTPError as e:
             return json.dumps({"error": f"HTTP Error: {e}", "url": url})
         except Exception as e:
             return json.dumps({"error": f"Error fetching URL: {e}", "url": url})
-    
+
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""
         # Convert links, headings, lists before stripping tags
