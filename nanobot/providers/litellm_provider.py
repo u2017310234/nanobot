@@ -35,26 +35,30 @@ class LiteLLMProvider(LLMProvider):
         # Track if using custom endpoint (vLLM, etc.)
         self.is_vllm = bool(api_base) and not self.is_openrouter
         
+        # Store provider-specific env vars to be set temporarily during requests
+        # instead of polluting os.environ permanently
+        self._env_vars: dict[str, str] = {}
+        
         # Configure LiteLLM based on provider
         if api_key:
             if self.is_openrouter:
-                # OpenRouter mode - set key
-                os.environ["OPENROUTER_API_KEY"] = api_key
+                # OpenRouter mode
+                self._env_vars["OPENROUTER_API_KEY"] = api_key
             elif self.is_vllm:
                 # vLLM/custom endpoint - uses OpenAI-compatible API
-                os.environ["OPENAI_API_KEY"] = api_key
+                self._env_vars["OPENAI_API_KEY"] = api_key
             elif "deepseek" in default_model:
-                os.environ.setdefault("DEEPSEEK_API_KEY", api_key)
+                self._env_vars["DEEPSEEK_API_KEY"] = api_key
             elif "anthropic" in default_model:
-                os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+                self._env_vars["ANTHROPIC_API_KEY"] = api_key
             elif "openai" in default_model or "gpt" in default_model:
-                os.environ.setdefault("OPENAI_API_KEY", api_key)
+                self._env_vars["OPENAI_API_KEY"] = api_key
             elif "gemini" in default_model.lower():
-                os.environ.setdefault("GEMINI_API_KEY", api_key)
+                self._env_vars["GEMINI_API_KEY"] = api_key
             elif "zhipu" in default_model or "glm" in default_model or "zai" in default_model:
-                os.environ.setdefault("ZHIPUAI_API_KEY", api_key)
+                self._env_vars["ZHIPUAI_API_KEY"] = api_key
             elif "groq" in default_model:
-                os.environ.setdefault("GROQ_API_KEY", api_key)
+                self._env_vars["GROQ_API_KEY"] = api_key
         
         if api_base:
             litellm.api_base = api_base
@@ -123,8 +127,23 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
         
         try:
-            response = await acompletion(**kwargs)
-            return self._parse_response(response)
+            # Temporarily set environment variables only during the request
+            # to avoid polluting os.environ permanently
+            old_env = {}
+            for key, value in self._env_vars.items():
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = value
+            
+            try:
+                response = await acompletion(**kwargs)
+                return self._parse_response(response)
+            finally:
+                # Restore previous environment state
+                for key in self._env_vars:
+                    if old_env[key] is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = old_env[key]
         except Exception as e:
             # Return error as content for graceful handling
             return LLMResponse(

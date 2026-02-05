@@ -1,6 +1,7 @@
 """Web tools: web_search and web_fetch."""
 
 import html
+import ipaddress
 import json
 import os
 import re
@@ -14,6 +15,26 @@ from nanobot.agent.tools.base import Tool
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
 MAX_REDIRECTS = 5  # Limit redirects to prevent DoS attacks
+DEFAULT_MAX_CHARS = 50000  # Default maximum characters for web fetch
+DEFAULT_REQUEST_TIMEOUT = 30.0  # Default timeout for HTTP requests in seconds
+DEFAULT_SEARCH_TIMEOUT = 10.0  # Default timeout for search requests in seconds
+
+
+def _is_private_ip(hostname: str) -> bool:
+    """Check if hostname resolves to a private/internal IP address."""
+    try:
+        # Handle localhost explicitly
+        if hostname.lower() in ('localhost', '127.0.0.1', '::1'):
+            return True
+        
+        # Try to parse as IP address
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    except ValueError:
+        # Not a valid IP address, likely a domain name
+        # We can't fully prevent DNS rebinding attacks without actually resolving,
+        # but we can block obvious cases
+        return False
 
 
 def _strip_tags(text: str) -> str:
@@ -31,13 +52,21 @@ def _normalize(text: str) -> str:
 
 
 def _validate_url(url: str) -> tuple[bool, str]:
-    """Validate URL: must be http(s) with valid domain."""
+    """Validate URL: must be http(s) with valid domain and not pointing to private IPs."""
     try:
         p = urlparse(url)
         if p.scheme not in ('http', 'https'):
             return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
         if not p.netloc:
             return False, "Missing domain"
+        
+        # Extract hostname (without port)
+        hostname = p.hostname or p.netloc.split(':')[0]
+        
+        # Check for private/internal IP addresses to prevent SSRF
+        if _is_private_ip(hostname):
+            return False, f"Access to private/internal IP addresses is not allowed: {hostname}"
+        
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -72,7 +101,7 @@ class WebSearchTool(Tool):
                     "https://api.search.brave.com/res/v1/web/search",
                     params={"q": query, "count": n},
                     headers={"Accept": "application/json", "X-Subscription-Token": self.api_key},
-                    timeout=10.0
+                    timeout=DEFAULT_SEARCH_TIMEOUT
                 )
                 r.raise_for_status()
             
@@ -86,8 +115,10 @@ class WebSearchTool(Tool):
                 if desc := item.get("description"):
                     lines.append(f"   {desc}")
             return "\n".join(lines)
+        except httpx.HTTPError as e:
+            return f"HTTP Error searching web: {e}"
         except Exception as e:
-            return f"Error: {e}"
+            return f"Error searching web: {e}"
 
 
 class WebFetchTool(Tool):
@@ -105,7 +136,7 @@ class WebFetchTool(Tool):
         "required": ["url"]
     }
     
-    def __init__(self, max_chars: int = 50000):
+    def __init__(self, max_chars: int = DEFAULT_MAX_CHARS):
         self.max_chars = max_chars
     
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
@@ -122,7 +153,7 @@ class WebFetchTool(Tool):
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 max_redirects=MAX_REDIRECTS,
-                timeout=30.0
+                timeout=DEFAULT_REQUEST_TIMEOUT
             ) as client:
                 r = await client.get(url, headers={"User-Agent": USER_AGENT})
                 r.raise_for_status()
@@ -147,8 +178,10 @@ class WebFetchTool(Tool):
             
             return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
                               "extractor": extractor, "truncated": truncated, "length": len(text), "text": text})
+        except httpx.HTTPError as e:
+            return json.dumps({"error": f"HTTP Error: {e}", "url": url})
         except Exception as e:
-            return json.dumps({"error": str(e), "url": url})
+            return json.dumps({"error": f"Error fetching URL: {e}", "url": url})
     
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""

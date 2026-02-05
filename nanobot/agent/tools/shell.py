@@ -8,13 +8,17 @@ from typing import Any
 
 from nanobot.agent.tools.base import Tool
 
+# Constants
+MAX_OUTPUT_LENGTH = 10000  # Maximum output length before truncation
+DEFAULT_TIMEOUT = 60  # Default command timeout in seconds
+
 
 class ExecTool(Tool):
     """Tool to execute shell commands."""
     
     def __init__(
         self,
-        timeout: int = 60,
+        timeout: int = DEFAULT_TIMEOUT,
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
@@ -99,9 +103,8 @@ class ExecTool(Tool):
             result = "\n".join(output_parts) if output_parts else "(no output)"
             
             # Truncate very long output
-            max_len = 10000
-            if len(result) > max_len:
-                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
+            if len(result) > MAX_OUTPUT_LENGTH:
+                result = result[:MAX_OUTPUT_LENGTH] + f"\n... (truncated, {len(result) - MAX_OUTPUT_LENGTH} more chars)"
             
             return result
             

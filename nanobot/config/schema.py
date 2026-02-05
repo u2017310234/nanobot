@@ -89,7 +89,7 @@ class WebToolsConfig(BaseModel):
 class ExecToolConfig(BaseModel):
     """Shell exec tool configuration."""
     timeout: int = 60
-    restrict_to_workspace: bool = False  # If true, block commands accessing paths outside workspace
+    restrict_to_workspace: bool = True  # If true, block commands accessing paths outside workspace
 
 
 class ToolsConfig(BaseModel):
